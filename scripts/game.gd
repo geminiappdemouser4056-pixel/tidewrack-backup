@@ -26,6 +26,11 @@ func _ready() -> void:
 	DialogueManager.dialogue_started.connect(func(): _set_movement(false))
 	DialogueManager.dialogue_finished.connect(func(): _set_movement(true))
 
+	# Continue mid-conversation if the save was written during one.
+	var pending := GameState.take_pending_dialogue()
+	if not pending.is_empty():
+		DialogueManager.resume.call_deferred(pending)
+
 
 func _build_room() -> void:
 	var bg := ColorRect.new()

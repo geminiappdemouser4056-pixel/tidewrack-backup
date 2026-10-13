@@ -15,6 +15,7 @@ signal line_shown(speaker: String, text: String, choices: Array)
 signal dialogue_finished
 
 var _graph: Dictionary = {}
+var _graph_path: String = ""
 var _current_id: String = ""
 var is_active: bool = false
 
@@ -24,10 +25,33 @@ func start(path: String, start_id: String = "start") -> bool:
 	if graph.is_empty():
 		return false
 	_graph = graph
+	_graph_path = path
 	is_active = true
 	dialogue_started.emit()
 	_goto(start_id)
 	return true
+
+
+## Where the player is in a conversation, for GameState.save_game().
+## Returns {} when no dialogue is active.
+func get_position() -> Dictionary:
+	if not is_active or _graph_path == "":
+		return {}
+	return {"path": _graph_path, "node": _current_id}
+
+
+## Re-enter a conversation at a saved node (see get_position()). Returns false
+## and leaves no dialogue active if the file or node no longer exists.
+func resume(position: Dictionary) -> bool:
+	var path := str(position.get("path", ""))
+	var node := str(position.get("node", ""))
+	if path == "" or node == "":
+		return false
+	var graph := _load_graph(path)
+	if graph.is_empty() or not graph.has(node):
+		push_warning("DialogueManager: cannot resume '%s' at node '%s'." % [path, node])
+		return false
+	return start(path, node)
 
 
 ## Advance a linear node (no choices). Ignored while choices are pending.
@@ -84,6 +108,7 @@ func _apply_flags(dict: Dictionary) -> void:
 func _finish() -> void:
 	is_active = false
 	_graph = {}
+	_graph_path = ""
 	_current_id = ""
 	dialogue_finished.emit()
 

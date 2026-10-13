@@ -23,4 +23,20 @@ func entries() -> Array[String]:
 
 func has(id: String) -> bool:
 	return id in _entries
-# TODO(demo): persist entries through GameState.save_game() and add the reader UI.
+
+
+## Forget everything (new game).
+func clear() -> void:
+	_entries.clear()
+
+
+## Replace the discovered set from a saved list (see GameState.load_game()).
+## Entries are re-announced so any reader UI can rebuild itself.
+func restore(ids: Array) -> void:
+	_entries.clear()
+	for id in ids:
+		var entry := str(id)
+		if entry != "" and not (entry in _entries):
+			_entries.append(entry)
+			entry_added.emit(entry)
+# TODO(demo): add the reader UI.
