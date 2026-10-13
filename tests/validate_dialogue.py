@@ -8,6 +8,8 @@ Checks, for every data/dialogue/*.json file:
   - every referenced target id exists
   - at least one terminal (next == null) is reachable from an entry point
   - reports orphan nodes (unreachable from any known entry) as warnings
+  - every "set_flag" (on a node or a choice) is an object of flag -> value
+  - lists every flag the graph sets, with the node/choice that sets it
 
 Exit code 0 = all valid, 1 = at least one error.
 
@@ -46,18 +48,49 @@ def reachable(graph: dict, entries: set[str]) -> set[str]:
     return seen
 
 
-def validate_file(path: Path) -> tuple[list[str], list[str]]:
+def collect_flags(graph: dict, errors: list[str], name: str) -> dict[str, list[str]]:
+    """Map flag name -> where it is set ("node" or "node#choice"), in graph order.
+
+    Both DialogueManager hooks are covered: a node-level "set_flag" is applied
+    when the node is entered, a choice-level one when that choice is picked.
+    A "set_flag" that is not an object is reported as an error.
+    """
+    flags: dict[str, list[str]] = {}
+
+    def record(payload, where: str) -> None:
+        if payload is None:
+            return
+        if not isinstance(payload, dict):
+            errors.append(f"{name}:{where}: 'set_flag' must be an object of flag -> value")
+            return
+        for flag, value in payload.items():
+            flags.setdefault(str(flag), []).append(f"{where}={json.dumps(value)}")
+
+    for nid, node in graph.items():
+        if not isinstance(node, dict):
+            continue
+        record(node.get("set_flag"), nid)
+        if isinstance(node.get("choices"), list):
+            for i, choice in enumerate(node["choices"]):
+                if isinstance(choice, dict):
+                    record(choice.get("set_flag"), f"{nid}#{i}")
+    return flags
+
+
+def validate_file(path: Path) -> tuple[list[str], list[str], dict[str, list[str]]]:
     errors: list[str] = []
     warnings: list[str] = []
+    flags: dict[str, list[str]] = {}
 
     try:
         graph = json.loads(path.read_text())
     except json.JSONDecodeError as exc:
-        return [f"{path.name}: invalid JSON — {exc}"], warnings
+        return [f"{path.name}: invalid JSON — {exc}"], warnings, flags
 
     if not isinstance(graph, dict):
-        return [f"{path.name}: top level must be an object of node_id -> node"], warnings
+        return [f"{path.name}: top level must be an object of node_id -> node"], warnings, flags
 
+    flags = collect_flags(graph, errors, path.name)
     has_terminal = False
     for nid, node in graph.items():
         if not isinstance(node, dict):
@@ -100,7 +133,7 @@ def validate_file(path: Path) -> tuple[list[str], list[str]]:
         for orphan in sorted(set(graph) - seen):
             warnings.append(f"{path.name}:{orphan}: unreachable from entry points {sorted(entries)}")
 
-    return errors, warnings
+    return errors, warnings, flags
 
 
 def main() -> int:
@@ -112,11 +145,17 @@ def main() -> int:
     all_errors: list[str] = []
     all_warnings: list[str] = []
     for path in files:
-        errs, warns = validate_file(path)
+        errs, warns, flags = validate_file(path)
         all_errors += errs
         all_warnings += warns
         status = "OK" if not errs else "FAIL"
         print(f"[{status}] {path.relative_to(ROOT)}  ({len(json.loads(path.read_text()))} nodes)")
+        if flags:
+            print(f"       flags set ({len(flags)}):")
+            for flag in sorted(flags):
+                print(f"         {flag:<20} <- {', '.join(flags[flag])}")
+        else:
+            print("       flags set: none")
 
     for w in all_warnings:
         print(f"  warning: {w}")
